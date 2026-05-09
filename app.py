@@ -157,6 +157,7 @@ if run_scan:
         )
 
         st.dataframe(
-            result_df,
-            use_container_width=True
+        result_df,
+        width="stretch"
+        )
         )

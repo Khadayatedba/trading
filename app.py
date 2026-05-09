@@ -3,8 +3,8 @@ import pandas as pd
 from openai import OpenAI
 
 from utils.screener import fetch_stock_data
-from utils.ai_engine import generate_ai_analysis
 from utils.charts import plot_chart
+from utils.ai_engine import generate_ai_analysis
 
 st.set_page_config(
     page_title="AI Stock Screener",
@@ -13,11 +13,11 @@ st.set_page_config(
 
 st.title("📈 AI-Based Stock Screener")
 
-# ----------------------------------
+# ----------------------------------------
 # Sidebar
-# ----------------------------------
+# ----------------------------------------
 
-st.sidebar.header("Settings")
+st.sidebar.header("Configuration")
 
 api_key = st.sidebar.text_input(
     "OpenAI API Key",
@@ -25,21 +25,21 @@ api_key = st.sidebar.text_input(
 )
 
 tickers_input = st.sidebar.text_area(
-    "Stock Symbols",
+    "Enter NSE Stock Symbols",
     value="RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS"
 )
 
 period = st.sidebar.selectbox(
-    "Historical Period",
+    "Select Historical Period",
     ["3mo", "6mo", "1y"],
     index=1
 )
 
-run_scan = st.sidebar.button("Run AI Scan")
+run_scan = st.sidebar.button("Run AI Screening")
 
-# ----------------------------------
-# Main
-# ----------------------------------
+# ----------------------------------------
+# Main Logic
+# ----------------------------------------
 
 if run_scan:
 
@@ -63,27 +63,42 @@ if run_scan:
 
         try:
 
-            df = fetch_stock_data(symbol, period)
+            df = fetch_stock_data(
+                symbol,
+                period
+            )
 
             if df is None or df.empty:
-                st.warning(f"No data for {symbol}")
+                st.warning(f"No data found for {symbol}")
                 continue
 
             latest = df.iloc[-1]
 
+            # ------------------------
+            # AI Score Calculation
+            # ------------------------
+
             score = 0
 
+            # Trend
             if latest["Close"] > latest["EMA50"]:
                 score += 30
 
+            # Momentum
             if latest["RSI"] > 55:
                 score += 25
 
+            # Volume
             if latest["Volume"] > latest["Volume_SMA20"]:
                 score += 20
 
+            # EMA crossover
             if latest["EMA20"] > latest["EMA50"]:
                 score += 25
+
+            # ------------------------
+            # Signal
+            # ------------------------
 
             if score >= 80:
                 signal = "STRONG BUY"
@@ -94,7 +109,10 @@ if run_scan:
             else:
                 signal = "SELL"
 
+            # ------------------------
             # Metrics
+            # ------------------------
+
             c1, c2, c3, c4 = st.columns(4)
 
             c1.metric(
@@ -117,20 +135,32 @@ if run_scan:
                 signal
             )
 
+            # ------------------------
             # Chart
+            # ------------------------
+
             plot_chart(df, symbol)
 
+            # ------------------------
             # AI Analysis
-            with st.spinner("Generating AI analysis..."):
+            # ------------------------
 
-                ai_text = generate_ai_analysis(
+            with st.spinner(
+                f"Generating AI analysis for {symbol}..."
+            ):
+
+                ai_response = generate_ai_analysis(
                     client,
                     symbol,
                     latest
                 )
 
             st.markdown("### 🤖 AI Analysis")
-            st.write(ai_text)
+            st.write(ai_response)
+
+            # ------------------------
+            # Final Table Data
+            # ------------------------
 
             final_results.append({
                 "Symbol": symbol,
@@ -141,13 +171,19 @@ if run_scan:
             })
 
         except Exception as e:
-            st.error(f"Error processing {symbol}: {e}")
 
-    # Summary Table
+            st.error(
+                f"Error processing {symbol}: {str(e)}"
+            )
+
+    # ----------------------------------------
+    # Final Summary
+    # ----------------------------------------
+
     if final_results:
 
         st.markdown("---")
-        st.header("📋 Screening Summary")
+        st.header("📋 Final Screening Results")
 
         result_df = pd.DataFrame(final_results)
 
@@ -157,7 +193,6 @@ if run_scan:
         )
 
         st.dataframe(
-        result_df,
-        width="stretch"
-        )
+            result_df,
+            width="stretch"
         )

@@ -39,5 +39,5 @@ def plot_chart(df, symbol):
 
     st.plotly_chart(
         fig,
-        use_container_width=True
+        width="stretch"
     )

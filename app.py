@@ -1,112 +1,46 @@
-# app.py
-# AI-Based Stock Screener using Streamlit + OpenAI
-# Run:
-# pip install streamlit yfinance pandas ta openai plotly
-# streamlit run app.py
-
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-import ta
 from openai import OpenAI
-import plotly.graph_objects as go
 
-st.set_page_config(page_title="AI Stock Screener", layout="wide")
+from utils.screener import fetch_stock_data
+from utils.ai_engine import generate_ai_analysis
+from utils.charts import plot_chart
+
+st.set_page_config(
+    page_title="AI Stock Screener",
+    layout="wide"
+)
 
 st.title("📈 AI-Based Stock Screener")
 
-# -----------------------------
+# ----------------------------------
 # Sidebar
-# -----------------------------
-st.sidebar.header("Configuration")
+# ----------------------------------
+
+st.sidebar.header("Settings")
 
 api_key = st.sidebar.text_input(
-    "Enter OpenAI API Key",
+    "OpenAI API Key",
     type="password"
 )
 
 tickers_input = st.sidebar.text_area(
-    "Enter Stock Symbols (comma separated)",
+    "Stock Symbols",
     value="RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS"
 )
 
 period = st.sidebar.selectbox(
-    "Select Period",
+    "Historical Period",
     ["3mo", "6mo", "1y"],
     index=1
 )
 
-run_scan = st.sidebar.button("Run AI Screening")
+run_scan = st.sidebar.button("Run AI Scan")
 
-# -----------------------------
-# AI Function
-# -----------------------------
-def get_ai_analysis(client, stock_data, symbol):
+# ----------------------------------
+# Main
+# ----------------------------------
 
-    latest = stock_data.iloc[-1]
-
-    prompt = f"""
-    Analyze this stock technically.
-
-    Stock: {symbol}
-
-    Current Price: {latest['Close']}
-    RSI: {latest['RSI']}
-    MACD: {latest['MACD']}
-    Volume: {latest['Volume']}
-    50 EMA: {latest['EMA50']}
-    20 EMA: {latest['EMA20']}
-
-    Give:
-    1. Buy / Sell / Hold
-    2. Short reasoning
-    3. Risk level
-    4. Momentum strength
-    """
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
-
-    return response.choices[0].message.content
-
-# -----------------------------
-# Stock Data Function
-# -----------------------------
-def fetch_stock_data(symbol, period):
-
-    df = yf.download(symbol, period=period)
-
-    if df.empty:
-        return None
-
-    df.dropna(inplace=True)
-
-    # Indicators
-    df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
-
-    macd = ta.trend.MACD(df["Close"])
-    df["MACD"] = macd.macd()
-
-    df["EMA20"] = ta.trend.EMAIndicator(
-        df["Close"], window=20
-    ).ema_indicator()
-
-    df["EMA50"] = ta.trend.EMAIndicator(
-        df["Close"], window=50
-    ).ema_indicator()
-
-    return df
-
-# -----------------------------
-# Main Logic
-# -----------------------------
 if run_scan:
 
     if not api_key:
@@ -116,121 +50,89 @@ if run_scan:
     client = OpenAI(api_key=api_key)
 
     tickers = [
-        t.strip().upper()
-        for t in tickers_input.split(",")
+        x.strip().upper()
+        for x in tickers_input.split(",")
     ]
 
-    results = []
+    final_results = []
 
     for symbol in tickers:
 
+        st.markdown("---")
         st.subheader(f"📊 {symbol}")
 
         try:
 
             df = fetch_stock_data(symbol, period)
 
-            if df is None:
-                st.warning(f"No data found for {symbol}")
+            if df is None or df.empty:
+                st.warning(f"No data for {symbol}")
                 continue
 
             latest = df.iloc[-1]
 
-            # Basic Conditions
-            trend = (
-                latest["Close"] > latest["EMA50"]
-            )
-
-            momentum = (
-                latest["RSI"] > 55
-            )
-
-            volume_strength = (
-                latest["Volume"] >
-                df["Volume"].rolling(20).mean().iloc[-1]
-            )
-
             score = 0
 
-            if trend:
+            if latest["Close"] > latest["EMA50"]:
                 score += 30
 
-            if momentum:
-                score += 30
+            if latest["RSI"] > 55:
+                score += 25
 
-            if volume_strength:
+            if latest["Volume"] > latest["Volume_SMA20"]:
                 score += 20
 
             if latest["EMA20"] > latest["EMA50"]:
-                score += 20
-
-            signal = "HOLD"
+                score += 25
 
             if score >= 80:
                 signal = "STRONG BUY"
             elif score >= 60:
                 signal = "BUY"
-            elif score < 40:
+            elif score >= 40:
+                signal = "HOLD"
+            else:
                 signal = "SELL"
 
-            # Display Metrics
-            col1, col2, col3, col4 = st.columns(4)
+            # Metrics
+            c1, c2, c3, c4 = st.columns(4)
 
-            col1.metric("Price", round(float(latest["Close"]), 2))
-            col2.metric("RSI", round(float(latest["RSI"]), 2))
-            col3.metric("AI Score", score)
-            col4.metric("Signal", signal)
+            c1.metric(
+                "Price",
+                round(float(latest["Close"]), 2)
+            )
+
+            c2.metric(
+                "RSI",
+                round(float(latest["RSI"]), 2)
+            )
+
+            c3.metric(
+                "AI Score",
+                score
+            )
+
+            c4.metric(
+                "Signal",
+                signal
+            )
 
             # Chart
-            fig = go.Figure()
-
-            fig.add_trace(
-                go.Scatter(
-                    x=df.index,
-                    y=df["Close"],
-                    mode='lines',
-                    name='Close Price'
-                )
-            )
-
-            fig.add_trace(
-                go.Scatter(
-                    x=df.index,
-                    y=df["EMA20"],
-                    mode='lines',
-                    name='EMA20'
-                )
-            )
-
-            fig.add_trace(
-                go.Scatter(
-                    x=df.index,
-                    y=df["EMA50"],
-                    mode='lines',
-                    name='EMA50'
-                )
-            )
-
-            fig.update_layout(
-                height=400,
-                title=f"{symbol} Price Chart"
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
+            plot_chart(df, symbol)
 
             # AI Analysis
-            with st.spinner(f"Generating AI analysis for {symbol}..."):
+            with st.spinner("Generating AI analysis..."):
 
-                analysis = get_ai_analysis(
+                ai_text = generate_ai_analysis(
                     client,
-                    df,
-                    symbol
+                    symbol,
+                    latest
                 )
 
             st.markdown("### 🤖 AI Analysis")
-            st.write(analysis)
+            st.write(ai_text)
 
-            results.append({
+            final_results.append({
                 "Symbol": symbol,
                 "Price": round(float(latest["Close"]), 2),
                 "RSI": round(float(latest["RSI"]), 2),
@@ -241,20 +143,20 @@ if run_scan:
         except Exception as e:
             st.error(f"Error processing {symbol}: {e}")
 
-    # Final Table
-    if results:
+    # Summary Table
+    if final_results:
 
         st.markdown("---")
-        st.header("📋 Final Screening Results")
+        st.header("📋 Screening Summary")
 
-        results_df = pd.DataFrame(results)
+        result_df = pd.DataFrame(final_results)
 
-        results_df = results_df.sort_values(
+        result_df = result_df.sort_values(
             by="AI Score",
             ascending=False
         )
 
         st.dataframe(
-            results_df,
+            result_df,
             use_container_width=True
         )
